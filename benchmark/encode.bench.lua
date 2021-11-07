@@ -8,16 +8,15 @@ local data = httpService:JSONDecode(jsonMessage)
 
 return {
 
-  ParameterGenerator = function() end,
+	ParameterGenerator = function() end,
 
-  Functions = {
-    ["JSONEncode"] = function(Profiler)
-      httpService:JSONEncode(data)
-    end,
+	Functions = {
+		["JSONEncode"] = function(Profiler)
+			httpService:JSONEncode(data)
+		end,
 
-    ["msgpack.encode"] = function(Profiler)
-      msgpackEncode(data)
-    end
-  }
-
+		["msgpack.encode"] = function(Profiler)
+			msgpackEncode(data)
+		end,
+	},
 }

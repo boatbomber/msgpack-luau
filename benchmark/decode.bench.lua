@@ -8,16 +8,15 @@ local msgpackMessage = require(game.ServerStorage.MsgpackMessage)
 
 return {
 
-  ParameterGenerator = function() end,
+	ParameterGenerator = function() end,
 
-  Functions = {
-    ["JSONDecode"] = function(Profiler)
-      httpService:JSONDecode(jsonMessage)
-    end,
+	Functions = {
+		["JSONDecode"] = function(Profiler)
+			httpService:JSONDecode(jsonMessage)
+		end,
 
-    ["msgpack.decode"] = function(Profiler)
-      msgpackDecode(msgpackMessage)
-    end
-  }
-
+		["msgpack.decode"] = function(Profiler)
+			msgpackDecode(msgpackMessage)
+		end,
+	},
 }
