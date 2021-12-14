@@ -1,4 +1,12 @@
+<!-- Project links -->
+[latest release]: https://github.com/cipharius/msgpack-luau/releases/latest
+
+<!-- Images -->
+[shield wally release]: https://img.shields.io/endpoint?url=https://runkit.io/clockworksquirrel/wally-version-shield/branches/master/cipharius/msgpack-luau&color=blue&label=wally&style=flat
+
 # MessagePack for Luau
+
+[![Wally release (latest)][shield wally release]][latest release]
 
 A pure MessagePack binary serialization format implementation in Luau.
 
@@ -14,7 +22,19 @@ A pure MessagePack binary serialization format implementation in Luau.
 local msgpack = require(path.to.msgpack)
 local message = msgpack.encode({"hello", "world", 123, key="value"})
 
-print(msgpack.decode(message))
+for i,v in pairs(msgpack.decode(message)) do
+  print(i, v)
+end
+
+-- To store MessagePack message in DataStore, it first needs to be wrapped in UTF8 format
+-- This is not nescessary for HttpService or RemoteEvents!
+local dataStore = game:GetService("DataStoreService"):GetGlobalDataStore()
+dataStore:SetAsync("message", msgpack.utf8Encode(message))
+
+local retrieved = msgpack.utf8Decode(dataStore:GetAsync("message"))
+for i,v in pairs(msgpack.decode(retrieved)) do
+  print(i, v)
+end
 ```
 
 ## API
@@ -27,6 +47,15 @@ print(msgpack.decode(message))
 * `msgpack.decode(message: string): any`
 
   Decodes MessagePack binary string as pure Luau value.
+
+* `msgpack.utf8Encode(message: string): string`
+
+  Wraps binary string in a UTF-8 compatible encoding.
+  Nescessary to save binary strings (like MessagePack serialized data) in DataStore.
+
+* `msgpack.utf8Decode(blob: string): string`
+
+  Unwraps binary string from UTF-8 compatible encoding.
 
 * `msgpack.ByteArray.new(blob: string): msgpack.ByteArray`
 
@@ -63,8 +92,8 @@ To benchmark module's encoding performance same data is used as previously.
 It is first decoded as table structure then both `msgpack.encode` and `JSONEncode` encode it with the following results:
 ![Figure with JSONEncode and msgpack.encode benchmark results](./assets/encode-benchmark.png)
 
-MessagePack encoder currently slower than JSONEncode, although they remain pretty close.
-Here is another benchmark which combines both decoding and encoding steps:
+MessagePack encoder is bit less consistent as `JSONEncode`, but on average `msgpack.encode` is as performant as `JSONEncode`.
+Here is another benchmark which combines both decoding and encoding steps and as it can be seen, thanks to much greater `msgpack.decode` speed, both methods together perform better than built-in `JSONEncode` and `JSONDecode`:
 ![Figure with "JSONEncode & JSONDecode" and "msgpack.encode & msgpack.decode" benchmark results](./assets/decode-encode-benchmark.png)
 
 For more details on the benchmark setup, look into `./benchmark` directory.

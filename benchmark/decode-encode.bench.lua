@@ -13,22 +13,22 @@ return {
 
 	Functions = {
 		["JSONDecode & JSONEncode"] = function(Profiler)
-			Profiler.Begin("Decode")
-			local decoded = httpService:JSONDecode(jsonMessage)
+			Profiler.Begin("JSONDecode")
+			local x = httpService:JSONDecode(jsonMessage)
 			Profiler.End()
 
-			Profiler.Begin("Encode")
-			httpService:JSONEncode(decoded)
+			Profiler.Begin("JSONEncode")
+			httpService:JSONEncode(x)
 			Profiler.End()
 		end,
 
 		["msgpack.decode & msgpack.encode"] = function(Profiler)
-			Profiler.Begin("Decode")
-			local decoded = msgpackDecode(msgpackMessage)
+			Profiler.Begin("msgpack.decode")
+			local x = msgpackDecode(msgpackMessage)
 			Profiler.End()
 
-			Profiler.Begin("Encode")
-			msgpackEncode(decoded)
+			Profiler.Begin("msgpack.encode")
+			msgpackEncode(x)
 			Profiler.End()
 		end,
 	},

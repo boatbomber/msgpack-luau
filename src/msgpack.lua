@@ -14,6 +14,7 @@ local sbyte = string.byte
 local ssub = string.sub
 local char = string.char
 local concat = table.concat
+local tableCreate = table.create
 
 local function parse(message: string, offset: number): (any, number)
 	local byte = sbyte(message, offset + 1, offset + 1)
@@ -175,7 +176,7 @@ local function parse(message: string, offset: number): (any, number)
 	elseif byte == 0xDC then -- array 16
 		local i0, i1 = sbyte(message, offset + 2, offset + 3)
 		local length = bor(lshift(i0, 8), i1)
-		local array = table.create(length)
+		local array = tableCreate(length)
 		local newOffset = offset + 3
 
 		for i = 1, length do
@@ -186,7 +187,7 @@ local function parse(message: string, offset: number): (any, number)
 	elseif byte == 0xDD then -- array 32
 		local i0, i1, i2, i3 = sbyte(message, offset + 2, offset + 5)
 		local length = bor(lshift(i0, 24), lshift(i1, 16), lshift(i2, 8), i3)
-		local array = table.create(length)
+		local array = tableCreate(length)
 		local newOffset = offset + 5
 
 		for i = 1, length do
@@ -238,7 +239,7 @@ local function parse(message: string, offset: number): (any, number)
 		return dictionary, newOffset
 	elseif byte - 0x90 <= 0x9F - 0x90 then -- fixarray
 		local length = band(byte, 0xF)
-		local array = table.create(length)
+		local array = tableCreate(length)
 		local newOffset = offset + 1
 
 		for i = 1, length do
@@ -251,10 +252,10 @@ local function parse(message: string, offset: number): (any, number)
 		return ssub(message, offset + 2, offset + 1 + length), offset + 1 + length
 	end
 
-	error("Not all decoder cases are handled")
+	error("Not all decoder cases are handled, report as bug to msgpack-luau maintainer")
 end
 
-local function encode(data: any): string
+local function encode(data: any, tableSet: { [any]: boolean }): string
 	if data == nil then
 		return "\xC0"
 	elseif data == false then
@@ -267,19 +268,20 @@ local function encode(data: any): string
 		if length <= 31 then
 			return char(bor(0xA0, length)) .. data
 		elseif length <= 0xFF then
-			return "\xD9" .. char(length) .. data
+			return char(0xD9, length) .. data
 		elseif length <= 0xFFFF then
-			return "\xDA" .. char(extract(length, 8, 8)) .. char(extract(length, 0, 8)) .. data
+			return char(0xDA, extract(length, 8, 8), extract(length, 0, 8)) .. data
 		elseif length <= 0xFFFFFFFF then
-			return "\xDB"
-				.. char(extract(length, 24, 8))
-				.. char(extract(length, 16, 8))
-				.. char(extract(length, 8, 8))
-				.. char(extract(length, 0, 8))
-				.. data
+			return char(
+				0xDB,
+				extract(length, 24, 8),
+				extract(length, 16, 8),
+				extract(length, 8, 8),
+				extract(length, 0, 8)
+			) .. data
 		end
 
-		error("Too long string")
+		error("Could not encode - too long string")
 	elseif type(data) == "number" then
 		-- represents NaN, Inf, -Inf as float 32 to save space
 		if data == 0 then
@@ -299,29 +301,33 @@ local function encode(data: any): string
 				if integral <= 127 then -- positive fixint
 					return char(integral)
 				elseif integral <= 0xFF then -- uint 8
-					return "\xCC" .. char(integral)
+					return char(0xCC, integral)
 				elseif integral <= 0xFFFF then -- uint 16
-					return "\xCD" .. char(extract(integral, 8, 8)) .. char(extract(integral, 0, 8))
+					return char(0xCD, extract(integral, 8, 8), extract(integral, 0, 8))
 				elseif integral <= 0xFFFFFFFF then -- uint 32
-					return "\xCE"
-						.. char(extract(integral, 24, 8))
-						.. char(extract(integral, 16, 8))
-						.. char(extract(integral, 8, 8))
-						.. char(extract(integral, 0, 8))
+					return char(
+						0xCE,
+						extract(integral, 24, 8),
+						extract(integral, 16, 8),
+						extract(integral, 8, 8),
+						extract(integral, 0, 8)
+					)
 				end
 			else
 				if integral >= -0x20 then -- negative fixint
 					return char(bor(0xE0, extract(integral, 0, 5)))
 				elseif integral >= -0x80 then -- int 8
-					return "\xD0" .. char(extract(integral, 0, 8))
+					return char(0xD0, extract(integral, 0, 8))
 				elseif integral >= -0x8000 then -- int 16
-					return "\xD1" .. char(extract(integral, 8, 8)) .. char(extract(integral, 0, 8))
+					return char(0xD1, extract(integral, 8, 8), extract(integral, 0, 8))
 				elseif integral >= -0x80000000 then -- int 32
-					return "\xD2"
-						.. char(extract(integral, 24, 8))
-						.. char(extract(integral, 16, 8))
-						.. char(extract(integral, 8, 8))
-						.. char(extract(integral, 0, 8))
+					return char(
+						0xD2,
+						extract(integral, 24, 8),
+						extract(integral, 16, 8),
+						extract(integral, 8, 8),
+						extract(integral, 0, 8)
+					)
 				end
 			end
 		end
@@ -332,17 +338,17 @@ local function encode(data: any): string
 		local mostSignificantPart, leastSignificantPart = modf(2 * (mantissa - 0.5) * 0x1000000)
 		leastSignificantPart = floor(leastSignificantPart * 0x10000000)
 
-		return "\xCB"
-			.. char(bor(lshift((1 - sign) / 2, 7), extract(exponent, 4, 7)))
-			.. char(bor(lshift(extract(exponent, 0, 4), 4), extract(mostSignificantPart, 20, 4)))
-			.. char(extract(mostSignificantPart, 12, 8))
-			.. char(extract(mostSignificantPart, 4, 8))
-			.. char(
-				bor(lshift(extract(mostSignificantPart, 0, 4), 4), extract(leastSignificantPart, 24, 4))
-			)
-			.. char(extract(leastSignificantPart, 16, 8))
-			.. char(extract(leastSignificantPart, 8, 8))
-			.. char(extract(leastSignificantPart, 0, 8))
+		return char(
+			0xCB,
+			bor(lshift((1 - sign) / 2, 7), extract(exponent, 4, 7)),
+			bor(lshift(extract(exponent, 0, 4), 4), extract(mostSignificantPart, 20, 4)),
+			extract(mostSignificantPart, 12, 8),
+			extract(mostSignificantPart, 4, 8),
+			bor(lshift(extract(mostSignificantPart, 0, 4), 4), extract(leastSignificantPart, 24, 4)),
+			extract(leastSignificantPart, 16, 8),
+			extract(leastSignificantPart, 8, 8),
+			extract(leastSignificantPart, 0, 8)
+		)
 	elseif type(data) == "table" then
 		local msgpackType = data._msgpackType
 
@@ -350,123 +356,142 @@ local function encode(data: any): string
 			if msgpackType == msgpack.Int64 or msgpackType == msgpack.UInt64 then
 				local mostSignificantPart = data.mostSignificantPart
 				local leastSignificantPart = data.leastSignificantPart
-
-				return (if msgpackType == msgpack.UInt64 then "\xCF" else "\xD3") ..
-					char(extract(mostSignificantPart, 24, 8)) ..
-					char(extract(mostSignificantPart, 16, 8)) ..
-					char(extract(mostSignificantPart, 8, 8)) ..
-					char(extract(mostSignificantPart, 0, 8)) ..
-					char(extract(leastSignificantPart, 24, 8)) ..
-					char(extract(leastSignificantPart, 16, 8)) ..
-					char(extract(leastSignificantPart, 8, 8)) ..
-					char(extract(leastSignificantPart, 0, 8))
+				return char(
+					if msgpackType == msgpack.UInt64 then 0xCF else 0xD3,
+					extract(mostSignificantPart, 24, 8),
+					extract(mostSignificantPart, 16, 8),
+					extract(mostSignificantPart, 8, 8),
+					extract(mostSignificantPart, 0, 8),
+					extract(leastSignificantPart, 24, 8),
+					extract(leastSignificantPart, 16, 8),
+					extract(leastSignificantPart, 8, 8),
+					extract(leastSignificantPart, 0, 8)
+				)
 			elseif msgpackType == msgpack.Extension then
 				local extensionData = data.data
 				local extensionType = data.type
 				local length = #extensionData
 
 				if length == 1 then
-					return "\xD4" .. char(extensionType) .. extensionData
+					return char(0xD4, extensionType) .. extensionData
 				elseif length == 2 then
-					return "\xD5" .. char(extensionType) .. extensionData
+					return char(0xD5, extensionType) .. extensionData
 				elseif length == 4 then
-					return "\xD6" .. char(extensionType) .. extensionData
+					return char(0xD6, extensionType) .. extensionData
 				elseif length == 8 then
-					return "\xD7" .. char(extensionType) .. extensionData
+					return char(0xD7, extensionType) .. extensionData
 				elseif length == 16 then
-					return "\xD8" .. char(extensionType) .. extensionData
+					return char(0xD8, extensionType) .. extensionData
 				elseif length <= 0xFF then
-					return "\xC7" .. char(length) .. char(extensionType) .. extensionData
+					return char(0xC7, length, extensionType) .. extensionData
 				elseif length <= 0xFFFF then
-					return "\xC8"
-						.. char(extract(length, 8, 8))
-						.. char(extract(length, 0, 8))
-						.. char(extensionType)
-						.. extensionData
+					return char(0xC8, extract(length, 8, 8), extract(length, 0, 8), extensionType) .. extensionData
 				elseif length <= 0xFFFFFFFF then
-					return "\xC9"
-						.. char(extract(length, 24, 8))
-						.. char(extract(length, 16, 8))
-						.. char(extract(length, 8, 8))
-						.. char(extract(length, 0, 8))
-						.. char(extensionType)
-						.. extensionData
+					return char(
+						0xC9,
+						extract(length, 24, 8),
+						extract(length, 16, 8),
+						extract(length, 8, 8),
+						extract(length, 0, 8),
+						extensionType
+					) .. extensionData
 				end
 
-				error("Too long extension data")
+				error("Could not encode - too long extension data")
 			elseif msgpackType == msgpack.ByteArray then
 				data = data.data
 				local length = #data
 
 				if length <= 0xFF then
-					return "\xC4" .. char(length) .. data
+					return char(0xC4, length) .. data
 				elseif length <= 0xFFFF then
-					return "\xC5" .. char(extract(length, 8, 8)) .. char(extract(length, 0, 8)) .. data
+					return char(0xC5, extract(length, 8, 8), extract(length, 0, 8)) .. data
 				elseif length <= 0xFFFFFFFF then
-					return "\xC6"
-						.. char(extract(length, 24, 8))
-						.. char(extract(length, 16, 8))
-						.. char(extract(length, 8, 8))
-						.. char(extract(length, 0, 8))
-						.. data
+					return char(
+						0xC6,
+						extract(length, 24, 8),
+						extract(length, 16, 8),
+						extract(length, 8, 8),
+						extract(length, 0, 8)
+					) .. data
 				end
 
-				error("Too long BinaryArray")
+				error("Could not encode - too long BinaryArray")
 			end
 		end
 
+		if tableSet[data] then
+			error("Can not serialize cyclic table")
+		else
+			tableSet[data] = true
+		end
+
 		local length = #data
-		local encodedValues = table.create(length)
 		local mapLength = 0
 
 		for i, value in pairs(data) do
-			encodedValues[i] = encode(value)
 			mapLength += 1
 		end
 
 		if length == mapLength then -- array
+			local header
 			if length <= 15 then
-				return char(bor(0x90, length)) .. concat(encodedValues)
+				header = char(bor(0x90, length))
 			elseif length <= 0xFFFF then
-				return "\xDC" .. char(extract(length, 8, 8)) .. char(extract(length, 0, 8)) .. concat(encodedValues)
+				header = char(0xDC, extract(length, 8, 8), extract(length, 0, 8))
 			elseif length <= 0xFFFFFFFF then
-				return "\xDD"
-					.. char(extract(length, 24, 8))
-					.. char(extract(length, 16, 8))
-					.. char(extract(length, 8, 8))
-					.. char(extract(length, 0, 8))
-					.. concat(encodedValues)
+				header = char(
+					0xDD,
+					extract(length, 24, 8),
+					extract(length, 16, 8),
+					extract(length, 8, 8),
+					extract(length, 0, 8)
+				)
+			else
+				error("Could not encode - too long array")
 			end
 
-			error("Too long array")
-		else -- map
-			local encodedMap = table.create(2 * mapLength)
+			local encodedValues = table.create(length + 1)
+			encodedValues[1] = header
 
-			local i = 1
-			for key, value in pairs(encodedValues) do
-				encodedMap[i] = encode(key)
-				encodedMap[i + 1] = value
+			for i, v in ipairs(data) do
+				encodedValues[i + 1] = encode(v, tableSet)
+			end
+
+			return concat(encodedValues)
+		else -- map
+			local header
+			if mapLength <= 15 then
+				header = char(bor(0x80, mapLength))
+			elseif mapLength <= 0xFFFF then
+				header = char(0xDE, extract(mapLength, 8, 8), extract(mapLength, 0, 8))
+			elseif mapLength <= 0xFFFFFFFF then
+				header = char(
+					0xDF,
+					extract(mapLength, 24, 8),
+					extract(mapLength, 16, 8),
+					extract(mapLength, 8, 8),
+					extract(mapLength, 0, 8)
+				)
+			else
+				error("Could not encode - too long map")
+			end
+
+			local encodedPairs = tableCreate(2 * mapLength + 1)
+			encodedPairs[1] = header
+
+			local i = 2
+			for k, v in pairs(data) do
+				encodedPairs[i] = encode(k, tableSet)
+				encodedPairs[i + 1] = encode(v, tableSet)
 				i += 2
 			end
 
-			if mapLength <= 15 then
-				return char(bor(0x80, mapLength)) .. concat(encodedMap)
-			elseif mapLength <= 0xFFFF then
-				return "\xDE" .. char(extract(mapLength, 8, 8)) .. char(extract(mapLength, 0, 8)) .. concat(encodedMap)
-			elseif mapLength <= 0xFFFFFFFF then
-				return "\xDF"
-					.. char(extract(mapLength, 24, 8))
-					.. char(extract(mapLength, 16, 8))
-					.. char(extract(mapLength, 8, 8))
-					.. char(extract(mapLength, 0, 8))
-					.. concat(encodedMap)
-			end
-
-			error("Too long map")
+			return concat(encodedPairs)
 		end
 	end
 
-	error("Not all encoder cases are handled")
+	error(string.format('Could not encode - unsupported datatype "%s"', typeof(data)))
 end
 
 msgpack.Int64 = {}
@@ -508,15 +533,69 @@ function msgpack.Extension.new(extensionType: number, blob: string): Extension
 	}
 end
 
+function msgpack.utf8Encode(message: string): string
+	local messageLength = #message
+	local nBytes = math.ceil(messageLength * (8 / 7))
+	local result = tableCreate(nBytes)
+
+	local bitPointer = 0
+	for i = 1, nBytes do
+		local j = 1 + floor(bitPointer / 8)
+		local bitRemainder = bitPointer % 8
+		local byte = sbyte(message, j)
+
+		if bitRemainder == 0 then
+			result[i] = char(extract(byte, 1, 7))
+		elseif bitRemainder == 1 then
+			result[i] = char(extract(byte, 0, 7))
+		else
+			local nextByte = sbyte(message, j + 1) or 0
+			result[i] = char(
+				bor(
+					lshift(extract(byte, 0, 8 - bitRemainder), bitRemainder - 1),
+					extract(nextByte, 9 - bitRemainder, bitRemainder - 1)
+				)
+			)
+		end
+
+		bitPointer += 7
+	end
+
+	return table.concat(result)
+end
+
+function msgpack.utf8Decode(message: string): string
+	local nBytes = floor(#message * 7 / 8)
+	local result = table.create(nBytes)
+
+	local bitPointer = 0
+	for i = 1, nBytes do
+		local bitRemainder = bitPointer % 7
+		local byte = sbyte(message, 1 + floor(bitPointer / 7))
+		local nextByte = sbyte(message, 2 + floor(bitPointer / 7))
+
+		result[i] = char(
+			bor(
+				lshift(extract(byte, 0, 7 - bitRemainder), bitRemainder + 1),
+				extract(nextByte, 6 - bitRemainder, 1 + bitRemainder)
+			)
+		)
+
+		bitPointer += 8
+	end
+
+	return table.concat(result)
+end
+
 function msgpack.decode(message: string): any
 	if message == "" then
-		error("Message is too short")
+		error("Could not decode - input string is too short")
 	end
 	return (parse(message, 0))
 end
 
 function msgpack.encode(data: any): string
-	return encode(data)
+	return encode(data, {})
 end
 
 export type Int64 = { _msgpackType: typeof(msgpack.Int64), mostSignificantPart: number, leastSignificantPart: number }
@@ -525,3 +604,27 @@ export type Extension = { _msgpackType: typeof(msgpack.Extension), type: number,
 export type ByteArray = { _msgpackType: typeof(msgpack.ByteArray), data: string }
 
 return msgpack
+
+--[[
+MIT License
+
+Copyright (c) 2021 Valts Liepiņš
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+]]
